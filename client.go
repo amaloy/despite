@@ -17,9 +17,9 @@ func clientLoop(conn net.Conn, clientId int) {
 			break
 		}
 		if incoming[0] == '"' {
-			chanBroadcast <- fmt.Sprintf("Client %d: %s", clientId, incoming[1:])
+			chanBroadcast <- fmt.Sprintf("(Client %d: %s", clientId, incoming[1:])
 		} else {
-			clientWrite(conn, "\n(That just won't do.)\n")
+			clientWrite(conn, "\n(That just won't do.\n")
 		}
 	}
 
