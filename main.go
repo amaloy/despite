@@ -29,7 +29,7 @@ func main() {
 	// the keys are net.Conn objects and the values
 	// are client "ids", an integer.
 	//
-	allClients := make(map[net.Conn]int)
+	allPlayers := make(map[net.Conn]int)
 
 	newConnections := make(chan net.Conn)
 
@@ -57,34 +57,34 @@ func main() {
 
 		case conn := <-newConnections:
 
-			log.Printf("Accepted new client, #%d", clientCount)
+			log.Printf("Accepted new player, #%d", clientCount)
 
-			allClients[conn] = clientCount
+			allPlayers[conn] = clientCount
 			clientCount++
 
-			// Spawn independant client loop
-			go clientLoop(conn, allClients[conn])
+			// Spawn independant player loop
+			go playerLoop(conn, allPlayers[conn])
 
 		case message := <-chanBroadcast:
-			// Broadcast to all clients
-			for conn := range allClients {
-				go clientWrite(conn, message)
+			// Broadcast to all player
+			for conn := range allPlayers {
+				go playerWrite(conn, message)
 			}
 			log.Printf("New message: %s", message)
-			log.Printf("broadcast to %d clients", len(allClients))
+			log.Printf("broadcast to %d players", len(allPlayers))
 
 		case conn := <-chanDeadConns:
-			log.Printf("Client %d disconnected", allClients[conn])
-			delete(allClients, conn)
+			log.Printf("Player %d disconnected", allPlayers[conn])
+			delete(allPlayers, conn)
 		}
 	}
 }
 
-func clientWrite(conn net.Conn, message string) {
-	clientWriteBytes(conn, []byte(message))
+func playerWrite(conn net.Conn, message string) {
+	playerWriteBytes(conn, []byte(message))
 }
 
-func clientWriteBytes(conn net.Conn, message []byte) {
+func playerWriteBytes(conn net.Conn, message []byte) {
 	_, err := conn.Write(message)
 	if err != nil {
 		chanDeadConns <- conn
