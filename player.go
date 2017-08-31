@@ -3,30 +3,44 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"net"
 )
 
 type player struct {
-	conn net.Conn
-	name string
+	connID int
+	reader *bufio.Reader
+	writer *bufio.Writer
+	name   string
 }
 
 func playerLoop(p *player) {
-	playerWriteBytes(p, motd)
+	playerWrite(p, motd)
 	playerWrite(p, "\nDragonroar!\nV0026\n")
 
-	reader := bufio.NewReader(p.conn)
+	var line string
+	var err error
 	for {
-		incoming, err := reader.ReadString('\n')
+		line, err = playerReadLine(p)
 		if err != nil {
 			break
 		}
-		if incoming[0] == '"' {
-			chanBroadcast <- fmt.Sprintf("(%s: %s", p.name, incoming[1:])
+		if line[0] == '"' {
+			chanBroadcast <- fmt.Sprintf("(%s: %s", p.name, line[1:])
 		} else {
 			playerWrite(p, "\n(That just won't do.\n")
 		}
 	}
 
-	chanDeadConns <- p.conn
+	chanDisconnPlayers <- p
+}
+
+func playerWrite(p *player, message string) {
+	if _, err := p.writer.WriteString(message); err != nil {
+		chanDisconnPlayers <- p
+	} else {
+		p.writer.Flush()
+	}
+}
+
+func playerReadLine(p *player) (string, error) {
+	return p.reader.ReadString('\n')
 }

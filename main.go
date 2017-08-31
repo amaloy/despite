@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -8,23 +9,22 @@ import (
 	"os"
 )
 
-var chanDeadConns = make(chan net.Conn)
+var chanDisconnPlayers = make(chan *player)
 var chanBroadcast = make(chan string)
-var motd []byte
+var motd string
 
 func main() {
 
-	var err error
-
-	motd, err = ioutil.ReadFile("motd.txt")
-	if err != nil {
+	if motdBytes, err := ioutil.ReadFile("motd.txt"); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
+	} else {
+		motd = string(motdBytes)
 	}
 
 	// Connection count increment (not needed once there are names)
 	clientCount := 0
-	allPlayers := make(map[net.Conn]*player)
+	allPlayers := make(map[int]*player)
 	newConnections := make(chan net.Conn)
 
 	server, err := net.Listen("tcp", ":7734")
@@ -54,10 +54,12 @@ func main() {
 			log.Printf("Accepted new player, #%d", clientCount)
 
 			p := new(player)
-			p.conn = conn
+			p.connID = clientCount
+			p.reader = bufio.NewReader(conn)
+			p.writer = bufio.NewWriter(conn)
 			p.name = fmt.Sprintf("Player %v", clientCount)
 
-			allPlayers[conn] = p
+			allPlayers[p.connID] = p
 			clientCount++
 
 			// Spawn independant player loop
@@ -71,20 +73,9 @@ func main() {
 			log.Printf("New message: %s", message)
 			log.Printf("broadcast to %d players", len(allPlayers))
 
-		case conn := <-chanDeadConns:
-			log.Printf("%s disconnected", allPlayers[conn].name)
-			delete(allPlayers, conn)
+		case p := <-chanDisconnPlayers:
+			log.Printf("%s disconnected", p.name)
+			delete(allPlayers, p.connID)
 		}
-	}
-}
-
-func playerWrite(p *player, message string) {
-	playerWriteBytes(p, []byte(message))
-}
-
-func playerWriteBytes(p *player, message []byte) {
-	_, err := p.conn.Write(message)
-	if err != nil {
-		chanDeadConns <- p.conn
 	}
 }
