@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 )
 
 type player struct {
@@ -12,33 +11,30 @@ type player struct {
 	name   string
 }
 
-func playerLoop(p *player) {
-	playerWrite(p, motd)
-	playerWrite(p, "\nDragonroar!\nV0026\n")
-
-	var line string
+func playerExec(p *player) {
 	var err error
-	for {
-		line, err = playerReadLine(p)
-		if err != nil {
-			break
-		}
-		if line[0] == '"' {
-			chanBroadcast <- fmt.Sprintf("(%s: %s", p.name, line[1:])
-		} else {
-			playerWrite(p, "\n(That just won't do.\n")
-		}
+	err = playerLoginLoop(p)
+	if err != nil {
+		playerLogOut(p)
 	}
-
-	chanDisconnPlayers <- p
+	playerMainLoop(p)
+	playerLogOut(p)
 }
 
-func playerWrite(p *player, message string) {
-	if _, err := p.writer.WriteString(message); err != nil {
-		chanDisconnPlayers <- p
-	} else {
-		p.writer.Flush()
+func playerLogOut(p *player) {
+	chanCleanDisconns <- p
+}
+
+func playerWrite(p *player, message string) (err error) {
+	_, err = p.writer.WriteString(message)
+	if err != nil {
+		return err
 	}
+	err = p.writer.Flush()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func playerReadLine(p *player) (string, error) {

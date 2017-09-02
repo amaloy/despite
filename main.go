@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-var chanDisconnPlayers = make(chan *player)
+var chanCleanDisconns = make(chan *player)
 var chanBroadcast = make(chan string)
 var motd string
 
@@ -62,8 +62,8 @@ func main() {
 			allPlayers[p.connID] = p
 			clientCount++
 
-			// Spawn independant player loop
-			go playerLoop(p)
+			// Spawn independant player exec
+			go playerExec(p)
 
 		case message := <-chanBroadcast:
 			// Broadcast to all player
@@ -73,7 +73,7 @@ func main() {
 			log.Printf("New message: %s", message)
 			log.Printf("broadcast to %d players", len(allPlayers))
 
-		case p := <-chanDisconnPlayers:
+		case p := <-chanCleanDisconns:
 			log.Printf("%s disconnected", p.name)
 			delete(allPlayers, p.connID)
 		}
