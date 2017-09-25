@@ -9,6 +9,8 @@ import (
 	"os"
 )
 
+const serverName string = "Despite"
+
 var chanCleanDisconns = make(chan *player)
 var chanBroadcast = make(chan string)
 var motd string
@@ -51,13 +53,13 @@ func main() {
 
 		case conn := <-newConnections:
 
-			log.Printf("Accepted new player, #%d", clientCount)
+			log.Printf("Accepted new connection, #%d", clientCount)
 
 			p := new(player)
 			p.connID = clientCount
+			p.conn = conn
 			p.reader = bufio.NewReader(conn)
 			p.writer = bufio.NewWriter(conn)
-			p.name = fmt.Sprintf("Player %v", clientCount)
 
 			allPlayers[p.connID] = p
 			clientCount++
@@ -70,12 +72,11 @@ func main() {
 			for _, p := range allPlayers {
 				go playerWrite(p, message)
 			}
-			log.Printf("New message: %s", message)
-			log.Printf("broadcast to %d players", len(allPlayers))
 
 		case p := <-chanCleanDisconns:
 			log.Printf("%s disconnected", p.name)
 			delete(allPlayers, p.connID)
+			p.conn.Close()
 		}
 	}
 }
