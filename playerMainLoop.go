@@ -5,10 +5,8 @@ import "fmt"
 func playerMainLoop(p *player) (err error) {
 	chanBroadcast <- fmt.Sprintf("(%s has entered %s.", p.name, serverName)
 
-	// TODO implement full map functionality
-	playerWrite(p, "]lev01")
-	playerWrite(p, "@4H")
-	playerWrite(p, "=")
+	p.mapContext = new(playerMapContext)
+	mainMap.addPlayer(p)
 
 	for {
 		p.readLine, err = playerReadLine(p)

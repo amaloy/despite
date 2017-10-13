@@ -6,15 +6,23 @@ import (
 )
 
 type player struct {
-	connID   int
-	conn     net.Conn
-	reader   *bufio.Reader
-	writer   *bufio.Writer
-	name     string
-	color    string
-	pstring  string
-	desc     string
-	readLine string
+	connID     int
+	conn       net.Conn
+	reader     *bufio.Reader
+	writer     *bufio.Writer
+	name       string
+	color      string
+	pstring    string
+	desc       string
+	readLine   string
+	mapContext *playerMapContext
+}
+
+type playerMapContext struct {
+	currMap  *dsmap
+	currX    int
+	currY    int
+	dsCoords string
 }
 
 func playerExec(p *player) {

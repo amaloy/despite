@@ -14,6 +14,7 @@ const serverName string = "Despite"
 var chanCleanDisconns = make(chan *player)
 var chanBroadcast = make(chan string)
 var motd string
+var mainMap *dsmap
 
 func main() {
 
@@ -23,6 +24,8 @@ func main() {
 	} else {
 		motd = string(motdBytes)
 	}
+
+	mainMap = buildMainMap()
 
 	// Connection count increment (not needed once there are names)
 	clientCount := 0
@@ -79,4 +82,18 @@ func main() {
 			p.conn.Close()
 		}
 	}
+}
+
+func toDSChar(i int) rune {
+	return (rune)(i + 32)
+}
+
+func buildMainMap() (m *dsmap) {
+	m = new(dsmap)
+	m.name = "lev01"
+	m.width = standardMapWidth
+	m.height = standardMapHeight
+	m.xstart = 26
+	m.ystart = 41
+	return
 }
