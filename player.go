@@ -14,6 +14,7 @@ type player struct {
 	color      string
 	pstring    string
 	desc       string
+	shape      rune
 	readLine   string
 	mapContext *playerMapContext
 }
@@ -37,6 +38,7 @@ func playerExec(p *player) {
 }
 
 func playerLogOut(p *player) {
+	p.mapContext.currMap.removePlayer(p)
 	chanCleanDisconns <- p
 }
 

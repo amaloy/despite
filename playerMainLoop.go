@@ -6,6 +6,7 @@ func playerMainLoop(p *player) (err error) {
 	chanBroadcast <- fmt.Sprintf("(%s has entered %s.", p.name, serverName)
 
 	p.mapContext = new(playerMapContext)
+	p.shape = '"'
 	mainMap.addPlayer(p)
 
 	for {

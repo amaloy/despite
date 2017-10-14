@@ -71,7 +71,7 @@ func main() {
 			go playerExec(p)
 
 		case message := <-chanBroadcast:
-			// Broadcast to all player
+			// Broadcast to all players
 			for _, p := range allPlayers {
 				go playerWrite(p, message)
 			}
@@ -95,5 +95,6 @@ func buildMainMap() (m *dsmap) {
 	m.height = standardMapHeight
 	m.xstart = 26
 	m.ystart = 41
+	m.players = make(map[int]*player)
 	return
 }

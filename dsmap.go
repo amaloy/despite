@@ -5,11 +5,12 @@ import (
 )
 
 type dsmap struct {
-	name   string
-	width  int
-	height int
-	xstart int
-	ystart int
+	name    string
+	width   int
+	height  int
+	xstart  int
+	ystart  int
+	players map[int]*player
 }
 
 const standardMapWidth = 52
@@ -38,5 +39,27 @@ func (m *dsmap) addPlayer(p *player) {
 
 	playerWrite(p, "]"+m.name)
 	playerWrite(p, "@"+p.mapContext.dsCoords)
+
+	// Show this player themself
+	m.placePlayerBroadcast(p)
+	// Show other players to this player
+	for _, other := range m.players {
+		playerWrite(p, getPlacePlayerString(other))
+	}
+	m.players[p.connID] = p
+
 	playerWrite(p, "=")
+}
+
+func (m *dsmap) removePlayer(p *player) {
+	delete(m.players, p.connID)
+	chanBroadcast <- "<" + p.mapContext.dsCoords + " "
+}
+
+func (m *dsmap) placePlayerBroadcast(p *player) {
+	chanBroadcast <- getPlacePlayerString(p)
+}
+
+func getPlacePlayerString(p *player) string {
+	return "<" + p.mapContext.dsCoords + string(p.shape) + p.color
 }
