@@ -15,6 +15,7 @@ type player struct {
 	pstring    string
 	desc       string
 	shape      rune
+	facing     int
 	readLine   string
 	mapContext *playerMapContext
 }
