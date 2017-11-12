@@ -21,22 +21,43 @@ func playerMainLoop(p *player) (err error) {
 			return
 		}
 		switch p.readLine[0] {
+		case 'm':
+			p.move()
 		case '"':
 			// Typed input
 			chanBroadcast <- fmt.Sprintf("(%s: %s", p.name, p.readLine[1:len(p.readLine)-1])
 		case '<':
 			// Rotate left
-			playerRotateLeft(p)
+			p.rotateLeft()
 		case '>':
 			// Rotate right
-			playerRotateRight(p)
+			p.rotateRight()
 		default:
 			playerWrite(p, "(That just won't do.")
 		}
 	}
 }
 
-func playerRotateLeft(p *player) {
+func (p *player) move() {
+	p.facing = int(p.readLine[2]) - 48
+	p.shape = toDSChar(longShapeStart[1][p.facing-1])
+	// TODO complete sprite handling
+
+	nx, ny := p.mapContext.currMap.nextxy(
+		p.mapContext.currX, p.mapContext.currY, p.facing)
+	// TODO: Check if can move here
+
+	p.mapContext.currX, p.mapContext.currY = nx, ny
+	oldDsCoords := p.mapContext.dsCoords
+	p.mapContext.dsCoords = string(toDSChar(p.mapContext.currX)) + string(toDSChar(p.mapContext.currY))
+	p.haltMapDraw()
+	p.playerWriteAt()
+	// Maybe send to current player synchronously?
+	p.mapContext.currMap.movePlayerBroadcast(p, oldDsCoords)
+	p.resumeMapDraw()
+}
+
+func (p *player) rotateLeft() {
 	switch p.facing {
 	case 7:
 		p.facing = 1
@@ -51,7 +72,7 @@ func playerRotateLeft(p *player) {
 	p.mapContext.currMap.placePlayerBroadcast(p)
 }
 
-func playerRotateRight(p *player) {
+func (p *player) rotateRight() {
 	switch p.facing {
 	case 7:
 		p.facing = 9

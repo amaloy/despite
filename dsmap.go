@@ -38,7 +38,7 @@ func (m *dsmap) addPlayer(p *player) {
 	p.mapContext.dsCoords = string(toDSChar(p.mapContext.currX)) + string(toDSChar(p.mapContext.currY))
 
 	playerWrite(p, "]"+m.name)
-	playerWrite(p, "@"+p.mapContext.dsCoords)
+	p.playerWriteAt()
 
 	// Show this player themself
 	m.placePlayerBroadcast(p)
@@ -48,7 +48,7 @@ func (m *dsmap) addPlayer(p *player) {
 	}
 	m.players[p.connID] = p
 
-	playerWrite(p, "=")
+	p.resumeMapDraw()
 }
 
 func (m *dsmap) removePlayer(p *player) {
@@ -58,6 +58,47 @@ func (m *dsmap) removePlayer(p *player) {
 
 func (m *dsmap) placePlayerBroadcast(p *player) {
 	chanBroadcast <- getPlacePlayerString(p)
+}
+
+func (m *dsmap) movePlayerBroadcast(p *player, oldDsCoords string) {
+	chanBroadcast <- getPlacePlayerString(p) + oldDsCoords + " "
+}
+
+func (m *dsmap) nextxy(x int, y int, dir int) (int, int) {
+	nx := x
+	if dir == 3 || dir == 9 {
+		if y%2 == 0 {
+			nx++
+		}
+	} else if y%2 == 1 {
+		nx--
+	}
+	if nx < 0 || nx >= m.width {
+		nx = x
+	}
+
+	ny := y
+	if dir == 7 || dir == 9 {
+		ny--
+	} else {
+		ny++
+	}
+	if ny < 0 || ny >= m.height {
+		ny = y
+	}
+	return nx, ny
+}
+
+func (p *player) haltMapDraw() {
+	playerWrite(p, "~")
+}
+
+func (p *player) resumeMapDraw() {
+	playerWrite(p, "=")
+}
+
+func (p *player) playerWriteAt() {
+	playerWrite(p, "@"+p.mapContext.dsCoords)
 }
 
 func getPlacePlayerString(p *player) string {
