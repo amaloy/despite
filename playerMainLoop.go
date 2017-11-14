@@ -43,18 +43,7 @@ func (p *player) move() {
 	p.shape = toDSChar(longShapeStart[1][p.facing-1])
 	// TODO complete sprite handling
 
-	nx, ny := p.mapContext.currMap.nextxy(
-		p.mapContext.currX, p.mapContext.currY, p.facing)
-	// TODO: Check if can move here
-
-	p.mapContext.currX, p.mapContext.currY = nx, ny
-	oldDsCoords := p.mapContext.dsCoords
-	p.mapContext.dsCoords = string(toDSChar(p.mapContext.currX)) + string(toDSChar(p.mapContext.currY))
-	p.haltMapDraw()
-	p.playerWriteAt()
-	// Maybe send to current player synchronously?
-	p.mapContext.currMap.movePlayerBroadcast(p, oldDsCoords)
-	p.resumeMapDraw()
+	p.mapContext.currMap.movePlayer(p, p.facing)
 }
 
 func (p *player) rotateLeft() {
@@ -69,7 +58,7 @@ func (p *player) rotateLeft() {
 		p.facing = 9
 	}
 	p.shape = toDSChar(longShapeStart[1][p.facing-1])
-	p.mapContext.currMap.placePlayerBroadcast(p)
+	p.mapContext.currMap.placePlayer(p)
 }
 
 func (p *player) rotateRight() {
@@ -84,5 +73,5 @@ func (p *player) rotateRight() {
 		p.facing = 1
 	}
 	p.shape = toDSChar(longShapeStart[1][p.facing-1])
-	p.mapContext.currMap.placePlayerBroadcast(p)
+	p.mapContext.currMap.placePlayer(p)
 }

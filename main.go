@@ -93,6 +93,14 @@ func buildMainMap() (m *dsmap) {
 	m.name = "lev01"
 	m.width = standardMapWidth
 	m.height = standardMapHeight
+	m.tiles = make([][]*dsmapTile, m.width)
+	for x := range m.tiles {
+		row := make([]*dsmapTile, m.height)
+		for y := range row {
+			row[y] = new(dsmapTile)
+		}
+		m.tiles[x] = row
+	}
 	m.xstart = 26
 	m.ystart = 41
 	m.players = make(map[int]*player)

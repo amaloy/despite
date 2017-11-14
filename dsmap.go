@@ -4,10 +4,15 @@ import (
 	"math/rand"
 )
 
+type dsmapTile struct {
+	hasPlayer bool
+}
+
 type dsmap struct {
 	name    string
 	width   int
 	height  int
+	tiles   [][]*dsmapTile
 	xstart  int
 	ystart  int
 	players map[int]*player
@@ -17,17 +22,22 @@ const standardMapWidth = 52
 const standardMapHeight = 100
 
 func (m *dsmap) getRandomStartCoords() (x int, y int) {
-	x = (rand.Intn(5) - 3) + m.xstart
-	if x >= m.width {
-		x = m.width - 1
-	} else if x < 0 {
-		x = 0
-	}
-	y = (rand.Intn(5) - 3) + m.ystart
-	if y >= m.height {
-		y = m.height - 1
-	} else if y < 0 {
-		y = 0
+	for {
+		x = (rand.Intn(5) - 3) + m.xstart
+		if x >= m.width {
+			x = m.width - 1
+		} else if x < 0 {
+			x = 0
+		}
+		y = (rand.Intn(5) - 3) + m.ystart
+		if y >= m.height {
+			y = m.height - 1
+		} else if y < 0 {
+			y = 0
+		}
+		if !m.tileIsBlocked(x, y) {
+			break
+		}
 	}
 	return
 }
@@ -35,13 +45,14 @@ func (m *dsmap) getRandomStartCoords() (x int, y int) {
 func (m *dsmap) addPlayer(p *player) {
 	p.mapContext.currMap = m
 	p.mapContext.currX, p.mapContext.currY = m.getRandomStartCoords()
+	m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = true
 	p.mapContext.dsCoords = string(toDSChar(p.mapContext.currX)) + string(toDSChar(p.mapContext.currY))
 
 	playerWrite(p, "]"+m.name)
 	p.playerWriteAt()
 
-	// Show this player themself
-	m.placePlayerBroadcast(p)
+	// Show this player
+	m.placePlayer(p)
 	// Show other players to this player
 	for _, other := range m.players {
 		playerWrite(p, getPlacePlayerString(other))
@@ -53,15 +64,32 @@ func (m *dsmap) addPlayer(p *player) {
 
 func (m *dsmap) removePlayer(p *player) {
 	delete(m.players, p.connID)
+	m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = false
 	chanBroadcast <- "<" + p.mapContext.dsCoords + " "
 }
 
-func (m *dsmap) placePlayerBroadcast(p *player) {
+func (m *dsmap) placePlayer(p *player) {
+	m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = true
 	chanBroadcast <- getPlacePlayerString(p)
 }
 
-func (m *dsmap) movePlayerBroadcast(p *player, oldDsCoords string) {
-	chanBroadcast <- getPlacePlayerString(p) + oldDsCoords + " "
+func (m *dsmap) movePlayer(p *player, dir int) {
+	nx, ny := p.mapContext.currMap.nextxy(
+		p.mapContext.currX, p.mapContext.currY, dir)
+	if !m.tileIsBlocked(nx, ny) {
+		m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = false
+		p.mapContext.currX, p.mapContext.currY = nx, ny
+		m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = true
+		oldDsCoords := p.mapContext.dsCoords
+		p.mapContext.dsCoords = string(toDSChar(p.mapContext.currX)) + string(toDSChar(p.mapContext.currY))
+		p.haltMapDraw()
+		p.playerWriteAt()
+		p.resumeMapDraw()
+		// TODO Maybe send to current player synchronously?
+		chanBroadcast <- getPlacePlayerString(p) + oldDsCoords + " "
+	} else {
+		m.placePlayer(p)
+	}
 }
 
 func (m *dsmap) nextxy(x int, y int, dir int) (int, int) {
@@ -87,6 +115,10 @@ func (m *dsmap) nextxy(x int, y int, dir int) (int, int) {
 		ny = y
 	}
 	return nx, ny
+}
+
+func (m *dsmap) tileIsBlocked(x int, y int) bool {
+	return m.tiles[x][y].hasPlayer
 }
 
 func (p *player) haltMapDraw() {
