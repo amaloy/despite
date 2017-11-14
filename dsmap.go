@@ -51,13 +51,13 @@ func (m *dsmap) addPlayer(p *player) {
 	playerWrite(p, "]"+m.name)
 	p.playerWriteAt()
 
+	m.players[p.connID] = p
 	// Show this player
 	m.placePlayer(p)
 	// Show other players to this player
 	for _, other := range m.players {
 		playerWrite(p, getPlacePlayerString(other))
 	}
-	m.players[p.connID] = p
 
 	p.resumeMapDraw()
 }
@@ -65,12 +65,12 @@ func (m *dsmap) addPlayer(p *player) {
 func (m *dsmap) removePlayer(p *player) {
 	delete(m.players, p.connID)
 	m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = false
-	chanBroadcast <- "<" + p.mapContext.dsCoords + " "
+	broadcastMapExclude("<"+p.mapContext.dsCoords+" ", p)
 }
 
 func (m *dsmap) placePlayer(p *player) {
 	m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = true
-	chanBroadcast <- getPlacePlayerString(p)
+	broadcastMap(getPlacePlayerString(p), p)
 }
 
 func (m *dsmap) movePlayer(p *player, dir int) {
@@ -84,9 +84,10 @@ func (m *dsmap) movePlayer(p *player, dir int) {
 		p.mapContext.dsCoords = string(toDSChar(p.mapContext.currX)) + string(toDSChar(p.mapContext.currY))
 		p.haltMapDraw()
 		p.playerWriteAt()
+		message := getPlacePlayerString(p) + oldDsCoords + " "
+		playerWrite(p, message)
 		p.resumeMapDraw()
-		// TODO Maybe send to current player synchronously?
-		chanBroadcast <- getPlacePlayerString(p) + oldDsCoords + " "
+		broadcastMapExclude(message, p)
 	} else {
 		m.placePlayer(p)
 	}

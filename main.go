@@ -11,8 +11,14 @@ import (
 
 const serverName string = "Despite"
 
+type broadcastPayload struct {
+	message       string
+	targetMap     *dsmap
+	excludePlayer *player
+}
+
 var chanCleanDisconns = make(chan *player)
-var chanBroadcast = make(chan string)
+var chanBroadcast = make(chan broadcastPayload)
 var motd string
 var mainMap *dsmap
 
@@ -70,10 +76,18 @@ func main() {
 			// Spawn independant player exec
 			go playerExec(p)
 
-		case message := <-chanBroadcast:
-			// Broadcast to all players
-			for _, p := range allPlayers {
-				go playerWrite(p, message)
+		case payload := <-chanBroadcast:
+			var targets map[int]*player
+			if payload.targetMap == nil {
+				targets = allPlayers
+			} else {
+				targets = payload.targetMap.players
+			}
+
+			for _, p := range targets {
+				if p != payload.excludePlayer {
+					go playerWrite(p, payload.message)
+				}
 			}
 
 		case p := <-chanCleanDisconns:
@@ -82,6 +96,22 @@ func main() {
 			p.conn.Close()
 		}
 	}
+}
+
+func broadcast(message string, targetMap *dsmap, excludePlayer *player) {
+	chanBroadcast <- broadcastPayload{message, targetMap, excludePlayer}
+}
+
+func broadcastAll(message string) {
+	broadcast(message, nil, nil)
+}
+
+func broadcastMap(message string, p *player) {
+	broadcast(message, p.mapContext.currMap, nil)
+}
+
+func broadcastMapExclude(message string, p *player) {
+	broadcast(message, p.mapContext.currMap, p)
 }
 
 func toDSChar(i int) rune {

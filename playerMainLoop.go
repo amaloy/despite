@@ -8,7 +8,7 @@ var longShapeStart = [][]int{
 	{2, 2, 5, 8, 8, 5, 8, 11, 11}}
 
 func playerMainLoop(p *player) (err error) {
-	chanBroadcast <- fmt.Sprintf("(%s has entered %s.", p.name, serverName)
+	broadcastAll(fmt.Sprintf("(%s has entered %s.", p.name, serverName))
 
 	p.mapContext = new(playerMapContext)
 	p.shape = '"'
@@ -25,7 +25,7 @@ func playerMainLoop(p *player) (err error) {
 			p.move()
 		case '"':
 			// Typed input
-			chanBroadcast <- fmt.Sprintf("(%s: %s", p.name, p.readLine[1:len(p.readLine)-1])
+			broadcastMap(fmt.Sprintf("(%s: %s", p.name, p.readLine[1:len(p.readLine)-1]), p)
 		case '<':
 			// Rotate left
 			p.rotateLeft()
