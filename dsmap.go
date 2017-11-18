@@ -135,5 +135,5 @@ func (p *player) playerWriteAt() {
 }
 
 func getPlacePlayerString(p *player) string {
-	return "<" + p.mapContext.dsCoords + string(p.shape) + p.color
+	return "<" + p.mapContext.dsCoords + string(p.visibleShape) + p.color
 }

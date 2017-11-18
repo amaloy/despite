@@ -6,18 +6,20 @@ import (
 )
 
 type player struct {
-	connID     int
-	conn       net.Conn
-	reader     *bufio.Reader
-	writer     *bufio.Writer
-	name       string
-	color      string
-	pstring    string
-	desc       string
-	shape      rune
-	facing     int
-	readLine   string
-	mapContext *playerMapContext
+	connID          int
+	conn            net.Conn
+	reader          *bufio.Reader
+	writer          *bufio.Writer
+	name            string
+	color           string
+	pstring         string
+	desc            string
+	facing          int
+	facingShapeBase rune
+	visibleShape    rune
+	shapeMoveCycle  int
+	readLine        string
+	mapContext      *playerMapContext
 }
 
 type playerMapContext struct {
@@ -26,6 +28,13 @@ type playerMapContext struct {
 	currY    int
 	dsCoords string
 }
+
+var longShapeStart = [][]int{
+	{2, 2, 6, 10, 10, 6, 10, 14, 14},
+	{2, 2, 7, 12, 12, 7, 12, 17, 17},
+	{2, 2, 5, 8, 8, 5, 8, 11, 11}}
+
+var moveCycleLoop = [4]int{-1, 0, 1, 0}
 
 func playerExec(p *player) {
 	var err error
@@ -61,4 +70,18 @@ func playerWrite(p *player, message string) (err error) {
 
 func playerReadLine(p *player) (string, error) {
 	return p.reader.ReadString('\n')
+}
+
+func (p *player) setShapeStanding() {
+	p.facingShapeBase = toDSChar(longShapeStart[1][p.facing-1])
+	p.visibleShape = p.facingShapeBase
+}
+
+func (p *player) setShapeCycleMove() {
+	p.facingShapeBase = toDSChar(longShapeStart[1][p.facing-1])
+	p.visibleShape = p.facingShapeBase + rune(moveCycleLoop[p.shapeMoveCycle])
+	p.shapeMoveCycle++
+	if p.shapeMoveCycle == 4 {
+		p.shapeMoveCycle = 0
+	}
 }

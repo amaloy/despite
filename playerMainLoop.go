@@ -2,17 +2,13 @@ package main
 
 import "fmt"
 
-var longShapeStart = [][]int{
-	{2, 2, 6, 10, 10, 6, 10, 14, 14},
-	{2, 2, 7, 12, 12, 7, 12, 17, 17},
-	{2, 2, 5, 8, 8, 5, 8, 11, 11}}
-
 func playerMainLoop(p *player) (err error) {
 	broadcastAll(fmt.Sprintf("(%s has entered %s.", p.name, serverName))
 
 	p.mapContext = new(playerMapContext)
-	p.shape = '"'
 	p.facing = 1
+	p.shapeMoveCycle = 0
+	p.setShapeStanding()
 	mainMap.addPlayer(p)
 
 	for {
@@ -40,9 +36,7 @@ func playerMainLoop(p *player) (err error) {
 
 func (p *player) move() {
 	p.facing = int(p.readLine[2]) - 48
-	p.shape = toDSChar(longShapeStart[1][p.facing-1])
-	// TODO complete sprite handling
-
+	p.setShapeCycleMove()
 	p.mapContext.currMap.movePlayer(p, p.facing)
 }
 
@@ -57,7 +51,7 @@ func (p *player) rotateLeft() {
 	case 3:
 		p.facing = 9
 	}
-	p.shape = toDSChar(longShapeStart[1][p.facing-1])
+	p.setShapeStanding()
 	p.mapContext.currMap.placePlayer(p)
 }
 
@@ -72,6 +66,6 @@ func (p *player) rotateRight() {
 	case 3:
 		p.facing = 1
 	}
-	p.shape = toDSChar(longShapeStart[1][p.facing-1])
+	p.setShapeStanding()
 	p.mapContext.currMap.placePlayer(p)
 }
