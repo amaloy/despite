@@ -2,12 +2,14 @@ package main
 
 import (
 	"math/rand"
+	"os"
 
 	"github.com/satori/go.uuid"
 )
 
 type dsmapTile struct {
-	hasPlayer bool
+	hasPlayer        bool
+	hasBlockingFloor bool
 }
 
 type dsmap struct {
@@ -22,6 +24,38 @@ type dsmap struct {
 
 const standardMapWidth = 52
 const standardMapHeight = 100
+
+var floorwalk = []int{
+	0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 0, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 1,
+	1, 1, 1, 1, 1, 1, 1, 1, 0,
+	0, 1, 0, 0, 1, 0, 1, 1, 1,
+	1, 0, 0, 0, 1, 0, 1, 1, 1,
+	1, 1, 1, 0, 0, 0, 1, 1, 0}
+
+func (m *dsmap) readMapFromFile(filename string) (err error) {
+	f, err := os.Open(filename)
+	if err != nil {
+		return
+	}
+	buff := make([]byte, m.height*2)
+	var temp int
+	// Read floor tiles
+	for x := 0; x < m.width; x++ {
+		f.Read(buff)
+		for y := 0; y < m.height*2; y += 2 {
+			temp = int(buff[y])*95 + int(buff[y+1])
+			m.tiles[x][y/2].hasBlockingFloor = floorwalk[temp] == 1
+		}
+	}
+	// TODO Read items
+	f.Close()
+	return
+}
 
 func (m *dsmap) getRandomStartCoords() (x int, y int) {
 	for {
@@ -121,7 +155,8 @@ func (m *dsmap) nextxy(x int, y int, dir int) (int, int) {
 }
 
 func (m *dsmap) tileIsBlocked(x int, y int) bool {
-	return m.tiles[x][y].hasPlayer
+	tile := m.tiles[x][y]
+	return tile.hasBlockingFloor || tile.hasPlayer
 }
 
 func (p *player) haltMapDraw() {

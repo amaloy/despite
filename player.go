@@ -35,7 +35,7 @@ var longShapeStart = [][]int{
 	{2, 2, 7, 12, 12, 7, 12, 17, 17},
 	{2, 2, 5, 8, 8, 5, 8, 11, 11}}
 
-var moveCycleLoop = [4]int{-1, 0, 1, 0}
+var moveCycleLoop = []int{-1, 0, 1, 0}
 
 func playerExec(p *player) {
 	var err error

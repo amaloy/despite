@@ -132,6 +132,10 @@ func buildMainMap() (m *dsmap) {
 	}
 	m.xstart = 26
 	m.ystart = 41
+	err := m.readMapFromFile(m.name + ".dsmap")
+	if err != nil {
+		panic(err)
+	}
 	m.players = make(map[uuid.UUID]*player)
 	return
 }
