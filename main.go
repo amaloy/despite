@@ -27,8 +27,8 @@ var mainMap *dsmap
 func main() {
 
 	if motdBytes, err := ioutil.ReadFile("motd.txt"); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		log.Println(err)
+		motd = serverName
 	} else {
 		motd = string(motdBytes)
 	}
@@ -134,7 +134,7 @@ func buildMainMap() (m *dsmap) {
 	m.ystart = 41
 	err := m.readMapFromFile(m.name + ".dsmap")
 	if err != nil {
-		panic(err)
+		log.Println(err)
 	}
 	m.players = make(map[uuid.UUID]*player)
 	return
