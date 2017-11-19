@@ -3,22 +3,23 @@ package main
 import (
 	"bufio"
 	"net"
+
+	"github.com/satori/go.uuid"
 )
 
 type player struct {
-	connID          int
+	connID          uuid.UUID
 	conn            net.Conn
 	reader          *bufio.Reader
 	writer          *bufio.Writer
+	lastLine        string
 	name            string
 	color           string
-	pstring         string
 	desc            string
 	facing          int
 	facingShapeBase rune
 	visibleShape    rune
 	shapeMoveCycle  int
-	readLine        string
 	mapContext      *playerMapContext
 }
 
@@ -40,19 +41,19 @@ func playerExec(p *player) {
 	var err error
 	err = playerLoginLoop(p)
 	if err != nil {
-		playerLogOut(p)
+		p.logOut()
 		return
 	}
 	playerMainLoop(p)
-	playerLogOut(p)
+	p.logOut()
 }
 
-func playerLogOut(p *player) {
+func (p *player) logOut() {
 	p.mapContext.currMap.removePlayer(p)
 	chanCleanDisconns <- p
 }
 
-func playerWrite(p *player, message string) (err error) {
+func (p *player) send(message string) (err error) {
 	_, err = p.writer.WriteString(message)
 	if err != nil {
 		return err
@@ -68,8 +69,9 @@ func playerWrite(p *player, message string) (err error) {
 	return nil
 }
 
-func playerReadLine(p *player) (string, error) {
-	return p.reader.ReadString('\n')
+func (p *player) readLine() (err error) {
+	p.lastLine, err = p.reader.ReadString('\n')
+	return
 }
 
 func (p *player) setShapeStanding() {

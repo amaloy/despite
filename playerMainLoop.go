@@ -12,16 +12,16 @@ func playerMainLoop(p *player) (err error) {
 	mainMap.addPlayer(p)
 
 	for {
-		p.readLine, err = playerReadLine(p)
+		err = p.readLine()
 		if err != nil {
 			return
 		}
-		switch p.readLine[0] {
+		switch p.lastLine[0] {
 		case 'm':
 			p.move()
 		case '"':
 			// Typed input
-			broadcastMap(fmt.Sprintf("(%s: %s", p.name, p.readLine[1:len(p.readLine)-1]), p)
+			broadcastMap(fmt.Sprintf("(%s: %s", p.name, p.lastLine[1:len(p.lastLine)-1]), p)
 		case '<':
 			// Rotate left
 			p.rotateLeft()
@@ -29,13 +29,13 @@ func playerMainLoop(p *player) (err error) {
 			// Rotate right
 			p.rotateRight()
 		default:
-			playerWrite(p, "(That just won't do.")
+			p.send("(That just won't do.")
 		}
 	}
 }
 
 func (p *player) move() {
-	p.facing = int(p.readLine[2]) - 48
+	p.facing = int(p.lastLine[2]) - 48
 	p.setShapeCycleMove()
 	p.mapContext.currMap.movePlayer(p, p.facing)
 }
@@ -51,6 +51,7 @@ func (p *player) rotateLeft() {
 	case 3:
 		p.facing = 9
 	}
+	p.shapeMoveCycle = 0
 	p.setShapeStanding()
 	p.mapContext.currMap.placePlayer(p)
 }
@@ -66,6 +67,7 @@ func (p *player) rotateRight() {
 	case 3:
 		p.facing = 1
 	}
+	p.shapeMoveCycle = 0
 	p.setShapeStanding()
 	p.mapContext.currMap.placePlayer(p)
 }

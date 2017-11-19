@@ -2,14 +2,13 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 )
 
 func playerLoginLoop(p *player) (err error) {
-	playerWrite(p, motd)
-	playerWrite(p, "\nDragonroar!\nV0026")
+	p.send(motd)
+	p.send("\nDragonroar!\nV0026")
 
 	isnew, err := cmdConnect(p)
 	if err != nil {
@@ -26,8 +25,7 @@ func playerLoginLoop(p *player) (err error) {
 		}
 	}
 
-	playerWrite(p, "&")
-	playerWrite(p, fmt.Sprintf("PY%s", p.pstring))
+	p.send("&")
 
 	log.Printf("Logged in: %s", p.name)
 
@@ -36,14 +34,14 @@ func playerLoginLoop(p *player) (err error) {
 
 func cmdConnect(p *player) (isnew bool, err error) {
 	for {
-		p.readLine, err = playerReadLine(p)
+		err = p.readLine()
 		if err != nil {
 			return
 		}
-		p.readLine = strings.TrimSpace(p.readLine)
+		p.lastLine = strings.TrimSpace(p.lastLine)
 
-		if strings.HasPrefix(p.readLine, "connect") {
-			split := strings.Split(p.readLine, " ")
+		if strings.HasPrefix(p.lastLine, "connect") {
+			split := strings.Split(p.lastLine, " ")
 			if len(split) != 3 {
 				break
 			}
@@ -68,31 +66,29 @@ func authenticate(username string, password string) bool {
 }
 
 func cmdColor(p *player) (err error) {
-	playerWrite(p, "cs")
-	p.readLine, err = playerReadLine(p)
+	p.send("cs")
+	err = p.readLine()
 	if err != nil {
 		return
 	}
-	if strings.HasPrefix(p.readLine, "color") {
-		color := p.readLine[6 : len(p.readLine)-1]
+	if strings.HasPrefix(p.lastLine, "color") {
+		color := p.lastLine[6 : len(p.lastLine)-1]
 		if len(color) != 4 {
 			color = "   !"
 		}
-		// TODO implement color/pstring fully
 		p.color = color
-		p.pstring = "!'+!"
 		return
 	}
 	return errors.New("cmdColor")
 }
 
 func cmdDesc(p *player) (err error) {
-	p.readLine, err = playerReadLine(p)
+	err = p.readLine()
 	if err != nil {
 		return
 	}
-	if strings.HasPrefix(p.readLine, "desc") {
-		desc := p.readLine[6 : len(p.readLine)-1]
+	if strings.HasPrefix(p.lastLine, "desc") {
+		desc := p.lastLine[6 : len(p.lastLine)-1]
 		if len(desc) > 500 {
 			desc = desc[:500]
 		}

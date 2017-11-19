@@ -2,6 +2,8 @@ package main
 
 import (
 	"math/rand"
+
+	"github.com/satori/go.uuid"
 )
 
 type dsmapTile struct {
@@ -15,7 +17,7 @@ type dsmap struct {
 	tiles   [][]*dsmapTile
 	xstart  int
 	ystart  int
-	players map[int]*player
+	players map[uuid.UUID]*player
 }
 
 const standardMapWidth = 52
@@ -48,7 +50,7 @@ func (m *dsmap) addPlayer(p *player) {
 	m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = true
 	p.mapContext.dsCoords = string(toDSChar(p.mapContext.currX)) + string(toDSChar(p.mapContext.currY))
 
-	playerWrite(p, "]"+m.name)
+	p.send("]" + m.name)
 	p.playerWriteAt()
 
 	m.players[p.connID] = p
@@ -56,7 +58,7 @@ func (m *dsmap) addPlayer(p *player) {
 	m.placePlayer(p)
 	// Show other players to this player
 	for _, other := range m.players {
-		playerWrite(p, getPlacePlayerString(other))
+		p.send(getPlacePlayerString(other))
 	}
 
 	p.resumeMapDraw()
@@ -85,7 +87,7 @@ func (m *dsmap) movePlayer(p *player, dir int) {
 		p.haltMapDraw()
 		p.playerWriteAt()
 		message := getPlacePlayerString(p) + oldDsCoords + " "
-		playerWrite(p, message)
+		p.send(message)
 		p.resumeMapDraw()
 		broadcastMapExclude(message, p)
 	} else {
@@ -123,15 +125,15 @@ func (m *dsmap) tileIsBlocked(x int, y int) bool {
 }
 
 func (p *player) haltMapDraw() {
-	playerWrite(p, "~")
+	p.send("~")
 }
 
 func (p *player) resumeMapDraw() {
-	playerWrite(p, "=")
+	p.send("=")
 }
 
 func (p *player) playerWriteAt() {
-	playerWrite(p, "@"+p.mapContext.dsCoords)
+	p.send("@" + p.mapContext.dsCoords)
 }
 
 func getPlacePlayerString(p *player) string {

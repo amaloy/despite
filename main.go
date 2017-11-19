@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"os"
+
+	"github.com/satori/go.uuid"
 )
 
 const serverName string = "Despite"
@@ -33,9 +35,7 @@ func main() {
 
 	mainMap = buildMainMap()
 
-	// Connection count increment (not needed once there are names)
-	clientCount := 0
-	allPlayers := make(map[int]*player)
+	allPlayers := make(map[uuid.UUID]*player)
 	newConnections := make(chan net.Conn)
 
 	server, err := net.Listen("tcp", ":7734")
@@ -62,22 +62,21 @@ func main() {
 
 		case conn := <-newConnections:
 
-			log.Printf("Accepted new connection, #%d", clientCount)
+			log.Printf("Accepted new connection, %v", conn.RemoteAddr())
 
 			p := new(player)
-			p.connID = clientCount
+			p.connID = uuid.NewV4()
 			p.conn = conn
 			p.reader = bufio.NewReader(conn)
 			p.writer = bufio.NewWriter(conn)
 
 			allPlayers[p.connID] = p
-			clientCount++
 
 			// Spawn independant player exec
 			go playerExec(p)
 
 		case payload := <-chanBroadcast:
-			var targets map[int]*player
+			var targets map[uuid.UUID]*player
 			if payload.targetMap == nil {
 				targets = allPlayers
 			} else {
@@ -86,12 +85,12 @@ func main() {
 
 			for _, p := range targets {
 				if p != payload.excludePlayer {
-					go playerWrite(p, payload.message)
+					go p.send(payload.message)
 				}
 			}
 
 		case p := <-chanCleanDisconns:
-			log.Printf("%s disconnected", p.name)
+			log.Printf("%s (%v) disconnected", p.name, p.conn.RemoteAddr())
 			delete(allPlayers, p.connID)
 			p.conn.Close()
 		}
@@ -133,6 +132,6 @@ func buildMainMap() (m *dsmap) {
 	}
 	m.xstart = 26
 	m.ystart = 41
-	m.players = make(map[int]*player)
+	m.players = make(map[uuid.UUID]*player)
 	return
 }
