@@ -24,10 +24,9 @@ type player struct {
 }
 
 type playerMapContext struct {
-	currMap  *dsmap
-	currX    int
-	currY    int
-	dsCoords string
+	currMap      *dsmap
+	currX, currY int
+	dsCoords     string
 }
 
 var longShapeStart = [][]int{

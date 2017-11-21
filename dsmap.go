@@ -13,13 +13,11 @@ type dsmapTile struct {
 }
 
 type dsmap struct {
-	name    string
-	width   int
-	height  int
-	tiles   [][]*dsmapTile
-	xstart  int
-	ystart  int
-	players map[uuid.UUID]*player
+	name           string
+	width, height  int
+	tiles          [][]*dsmapTile
+	xstart, ystart int
+	players        map[uuid.UUID]*player
 }
 
 const standardMapWidth = 52
@@ -57,7 +55,7 @@ func (m *dsmap) readMapFromFile(filename string) (err error) {
 	return
 }
 
-func (m *dsmap) getRandomStartCoords() (x int, y int) {
+func (m *dsmap) getRandomStartCoords() (x, y int) {
 	for {
 		x = (rand.Intn(5) - 3) + m.xstart
 		if x >= m.width {
@@ -129,8 +127,8 @@ func (m *dsmap) movePlayer(p *player, dir int) {
 	}
 }
 
-func (m *dsmap) nextxy(x int, y int, dir int) (int, int) {
-	nx := x
+func (m *dsmap) nextxy(x, y, dir int) (nx, ny int) {
+	nx = x
 	if dir == 3 || dir == 9 {
 		if y%2 == 0 {
 			nx++
@@ -142,7 +140,7 @@ func (m *dsmap) nextxy(x int, y int, dir int) (int, int) {
 		nx = x
 	}
 
-	ny := y
+	ny = y
 	if dir == 7 || dir == 9 {
 		ny--
 	} else {
@@ -151,10 +149,10 @@ func (m *dsmap) nextxy(x int, y int, dir int) (int, int) {
 	if ny < 0 || ny >= m.height {
 		ny = y
 	}
-	return nx, ny
+	return
 }
 
-func (m *dsmap) tileIsBlocked(x int, y int) bool {
+func (m *dsmap) tileIsBlocked(x, y int) bool {
 	tile := m.tiles[x][y]
 	return tile.hasBlockingFloor || tile.hasPlayer
 }
