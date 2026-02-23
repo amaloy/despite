@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"despite/ws"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -55,6 +56,8 @@ func main() {
 			newConnections <- conn
 		}
 	}()
+
+	go ws.Listen(":7738", "wsclient")
 
 	for {
 
