@@ -1,19 +1,20 @@
-package main
+package core
 
 import (
 	"bufio"
+	"context"
 	"net"
 
-	"github.com/satori/go.uuid"
+	"github.com/google/uuid"
 )
 
-type player struct {
-	connID          uuid.UUID
-	conn            net.Conn
-	reader          *bufio.Reader
-	writer          *bufio.Writer
+type Player struct {
+	ConnID          uuid.UUID
+	Conn            net.Conn
+	Reader          *bufio.Reader
+	Writer          *bufio.Writer
 	lastLine        string
-	name            string
+	Name            string
 	color           string
 	desc            string
 	facing          int
@@ -21,10 +22,11 @@ type player struct {
 	visibleShape    rune
 	shapeMoveCycle  int
 	mapContext      *playerMapContext
+	Ctx             context.Context
 }
 
 type playerMapContext struct {
-	currMap      *dsmap
+	currMap      *DSMap
 	currX, currY int
 	dsCoords     string
 }
@@ -36,49 +38,52 @@ var longShapeStart = [][]int{
 
 var moveCycleLoop = []int{-1, 0, 1, 0}
 
-func playerExec(p *player) {
+func PlayerExec(ctx context.Context, p *Player) {
+	p.Ctx = ctx
 	var err error
 	err = playerLoginLoop(p)
 	if err != nil {
 		p.logOut()
 		return
 	}
-	playerMainLoop(p)
+	playerMainLoop(ctx, p)
 	p.logOut()
 }
 
-func (p *player) logOut() {
-	p.mapContext.currMap.removePlayer(p)
-	chanCleanDisconns <- p
+func (p *Player) logOut() {
+	if p.mapContext != nil && p.mapContext.currMap != nil {
+		p.mapContext.currMap.removePlayer(p.Ctx, p)
+	}
+	ChanCleanDisconns <- p
 }
 
-func (p *player) send(message string) (err error) {
-	_, err = p.writer.WriteString(message)
+func (p *Player) Send(message string) (err error) {
+	_, err = p.Writer.WriteString(message)
 	if err != nil {
 		return err
 	}
-	_, err = p.writer.WriteRune('\n')
+	_, err = p.Writer.WriteRune('\n')
 	if err != nil {
 		return err
 	}
-	err = p.writer.Flush()
+	err = p.Writer.Flush()
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (p *player) readLine() (err error) {
-	p.lastLine, err = p.reader.ReadString('\n')
+func (p *Player) readLine() (err error) {
+	p.lastLine, err = p.Reader.ReadString('\n')
 	return
 }
 
-func (p *player) setShapeStanding() {
+func (p *Player) setShapeStanding() {
 	p.facingShapeBase = toDSChar(longShapeStart[1][p.facing-1])
 	p.visibleShape = p.facingShapeBase
 }
 
-func (p *player) setShapeCycleMove() {
+func (p *Player) setShapeCycleMove() {
 	p.facingShapeBase = toDSChar(longShapeStart[1][p.facing-1])
 	p.visibleShape = p.facingShapeBase + rune(moveCycleLoop[p.shapeMoveCycle])
 	p.shapeMoveCycle++

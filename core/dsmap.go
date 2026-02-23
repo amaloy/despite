@@ -1,10 +1,12 @@
-package main
+package core
 
 import (
+	"context"
+	"fmt"
 	"math/rand"
 	"os"
 
-	"github.com/satori/go.uuid"
+	"github.com/google/uuid"
 )
 
 type dsmapTile struct {
@@ -12,12 +14,12 @@ type dsmapTile struct {
 	hasBlockingFloor bool
 }
 
-type dsmap struct {
+type DSMap struct {
 	name           string
 	width, height  int
 	tiles          [][]*dsmapTile
 	xstart, ystart int
-	players        map[uuid.UUID]*player
+	Players        map[uuid.UUID]*Player
 }
 
 const standardMapWidth = 52
@@ -35,11 +37,12 @@ var floorwalk = []int{
 	1, 0, 0, 0, 1, 0, 1, 1, 1,
 	1, 1, 1, 0, 0, 0, 1, 1, 0}
 
-func (m *dsmap) readMapFromFile(filename string) (err error) {
+func (m *DSMap) readMapFromFile(filename string) (err error) {
 	f, err := os.Open(filename)
 	if err != nil {
-		return
+		return fmt.Errorf("open map file %s: %w", filename, err)
 	}
+	defer f.Close()
 	buff := make([]byte, m.height*2)
 	var temp int
 	// Read floor tiles
@@ -51,11 +54,10 @@ func (m *dsmap) readMapFromFile(filename string) (err error) {
 		}
 	}
 	// TODO Read items
-	f.Close()
 	return
 }
 
-func (m *dsmap) getRandomStartCoords() (x, y int) {
+func (m *DSMap) getRandomStartCoords() (x, y int) {
 	for {
 		x = (rand.Intn(5) - 3) + m.xstart
 		if x >= m.width {
@@ -76,38 +78,38 @@ func (m *dsmap) getRandomStartCoords() (x, y int) {
 	return
 }
 
-func (m *dsmap) addPlayer(p *player) {
+func (m *DSMap) addPlayer(ctx context.Context, p *Player) {
 	p.mapContext.currMap = m
 	p.mapContext.currX, p.mapContext.currY = m.getRandomStartCoords()
 	m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = true
 	p.mapContext.dsCoords = string(toDSChar(p.mapContext.currX)) + string(toDSChar(p.mapContext.currY))
 
-	p.send("]" + m.name)
+	p.Send("]" + m.name)
 	p.playerWriteAt()
 
-	m.players[p.connID] = p
+	m.Players[p.ConnID] = p
 	// Show this player
-	m.placePlayer(p)
+	m.placePlayer(ctx, p)
 	// Show other players to this player
-	for _, other := range m.players {
-		p.send(getPlacePlayerString(other))
+	for _, other := range m.Players {
+		p.Send(getPlacePlayerString(other))
 	}
 
 	p.resumeMapDraw()
 }
 
-func (m *dsmap) removePlayer(p *player) {
-	delete(m.players, p.connID)
+func (m *DSMap) removePlayer(ctx context.Context, p *Player) {
+	delete(m.Players, p.ConnID)
 	m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = false
-	broadcastMapExclude("<"+p.mapContext.dsCoords+" ", p)
+	broadcastMapExclude(ctx, "<"+p.mapContext.dsCoords+" ", p)
 }
 
-func (m *dsmap) placePlayer(p *player) {
+func (m *DSMap) placePlayer(ctx context.Context, p *Player) {
 	m.tiles[p.mapContext.currX][p.mapContext.currY].hasPlayer = true
-	broadcastMap(getPlacePlayerString(p), p)
+	broadcastMap(ctx, getPlacePlayerString(p), p)
 }
 
-func (m *dsmap) movePlayer(p *player, dir int) {
+func (m *DSMap) movePlayer(ctx context.Context, p *Player, dir int) {
 	nx, ny := p.mapContext.currMap.nextxy(
 		p.mapContext.currX, p.mapContext.currY, dir)
 	if !m.tileIsBlocked(nx, ny) {
@@ -119,15 +121,15 @@ func (m *dsmap) movePlayer(p *player, dir int) {
 		p.haltMapDraw()
 		p.playerWriteAt()
 		message := getPlacePlayerString(p) + oldDsCoords + " "
-		p.send(message)
+		p.Send(message)
 		p.resumeMapDraw()
-		broadcastMapExclude(message, p)
+		broadcastMapExclude(ctx, message, p)
 	} else {
-		m.placePlayer(p)
+		m.placePlayer(ctx, p)
 	}
 }
 
-func (m *dsmap) nextxy(x, y, dir int) (nx, ny int) {
+func (m *DSMap) nextxy(x, y, dir int) (nx, ny int) {
 	nx = x
 	if dir == 3 || dir == 9 {
 		if y%2 == 0 {
@@ -152,23 +154,23 @@ func (m *dsmap) nextxy(x, y, dir int) (nx, ny int) {
 	return
 }
 
-func (m *dsmap) tileIsBlocked(x, y int) bool {
+func (m *DSMap) tileIsBlocked(x, y int) bool {
 	tile := m.tiles[x][y]
 	return tile.hasBlockingFloor || tile.hasPlayer
 }
 
-func (p *player) haltMapDraw() {
-	p.send("~")
+func (p *Player) haltMapDraw() {
+	p.Send("~")
 }
 
-func (p *player) resumeMapDraw() {
-	p.send("=")
+func (p *Player) resumeMapDraw() {
+	p.Send("=")
 }
 
-func (p *player) playerWriteAt() {
-	p.send("@" + p.mapContext.dsCoords)
+func (p *Player) playerWriteAt() {
+	p.Send("@" + p.mapContext.dsCoords)
 }
 
-func getPlacePlayerString(p *player) string {
+func getPlacePlayerString(p *Player) string {
 	return "<" + p.mapContext.dsCoords + string(p.visibleShape) + p.color
 }

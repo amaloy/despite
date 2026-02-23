@@ -1,14 +1,12 @@
-package main
+package core
 
 import (
-	"errors"
-	"log"
 	"strings"
 )
 
-func playerLoginLoop(p *player) (err error) {
-	p.send(motd)
-	p.send("\nDragonroar!\nV0026")
+func playerLoginLoop(p *Player) (err error) {
+	p.Send(MOTD)
+	p.Send("\nDragonroar!\nV0026")
 
 	isnew, err := cmdConnect(p)
 	if err != nil {
@@ -16,23 +14,11 @@ func playerLoginLoop(p *player) (err error) {
 	}
 	if isnew {
 		err = cmdColor(p)
-		if err != nil {
-			return
-		}
-		err = cmdDesc(p)
-		if err != nil {
-			return
-		}
 	}
-
-	p.send("&")
-
-	log.Printf("Logged in: %s", p.name)
-
 	return
 }
 
-func cmdConnect(p *player) (isnew bool, err error) {
+func cmdConnect(p *Player) (isnew bool, err error) {
 	for {
 		err = p.readLine()
 		if err != nil {
@@ -42,22 +28,23 @@ func cmdConnect(p *player) (isnew bool, err error) {
 
 		if strings.HasPrefix(p.lastLine, "connect") {
 			split := strings.Split(p.lastLine, " ")
-			if len(split) != 3 {
-				break
+			if len(split) < 3 {
+				p.Send("(Usage: connect <username> <password>)")
+				continue
 			}
-
-			// TODO allow and keep track of multiple attempts
-			if authenticate(split[1], split[2]) {
-				p.name = split[1]
-				isnew = true
-				return
+			username := split[1]
+			password := split[2]
+			if authenticate(username, password) {
+				p.Name = username
+				p.Send("(Connected.)")
+				return true, nil
+			} else {
+				p.Send("(Invalid username or password.)")
 			}
-			break
 		} else {
-			break
+			p.Send("(Please connect with 'connect <username> <password>'.)")
 		}
 	}
-	return false, errors.New("cmdConnect")
 }
 
 func authenticate(username string, password string) bool {
@@ -65,8 +52,8 @@ func authenticate(username string, password string) bool {
 	return true
 }
 
-func cmdColor(p *player) (err error) {
-	p.send("cs")
+func cmdColor(p *Player) (err error) {
+	p.Send("cs")
 	err = p.readLine()
 	if err != nil {
 		return
@@ -77,12 +64,12 @@ func cmdColor(p *player) (err error) {
 			color = "   !"
 		}
 		p.color = color
-		return
+		err = cmdDesc(p)
 	}
-	return errors.New("cmdColor")
+	return
 }
 
-func cmdDesc(p *player) (err error) {
+func cmdDesc(p *Player) (err error) {
 	err = p.readLine()
 	if err != nil {
 		return
@@ -93,7 +80,6 @@ func cmdDesc(p *player) (err error) {
 			desc = desc[:500]
 		}
 		p.desc = desc
-		return
 	}
-	return errors.New("cmdDesc")
+	return
 }

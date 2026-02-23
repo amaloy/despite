@@ -2,46 +2,30 @@ package main
 
 import (
 	"bufio"
-	"fmt"
-	"io/ioutil"
-	"log"
+	"context"
 	"net"
 	"os"
 
-	"github.com/satori/go.uuid"
+	"github.com/amaloy/despite/core"
+	"github.com/google/uuid"
 )
 
-const serverName string = "Despite"
-
-type broadcastPayload struct {
-	message       *string
-	targetMap     *dsmap
-	excludePlayer *player
+type Server struct {
+	allPlayers     map[uuid.UUID]*core.Player
+	newConnections chan net.Conn
 }
 
-var chanCleanDisconns = make(chan *player)
-var chanBroadcast = make(chan *broadcastPayload)
-var motd string
-var mainMap *dsmap
-
-func main() {
-
-	if motdBytes, err := ioutil.ReadFile("motd.txt"); err != nil {
-		log.Println(err)
-		motd = serverName
-	} else {
-		motd = string(motdBytes)
+func (s *Server) Start(ctx context.Context) error {
+	err := core.InitMainMap()
+	if err != nil {
+		core.Logger.Error("failed to initialize main map", "err", err)
+		return err
 	}
-
-	mainMap = buildMainMap()
-
-	allPlayers := make(map[uuid.UUID]*player)
-	newConnections := make(chan net.Conn)
 
 	server, err := net.Listen("tcp", ":7734")
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		core.Logger.Error("failed to listen on port 7734", "err", err)
+		return err
 	}
 
 	go func() {
@@ -49,93 +33,68 @@ func main() {
 			// Accept new connections
 			conn, err := server.Accept()
 			if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
+				core.Logger.Error("failed to accept connection", "err", err)
+				return
 			}
-			newConnections <- conn
+			select {
+			case s.newConnections <- conn:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
 	for {
-
 		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case conn := <-s.newConnections:
+			core.Logger.Info("Accepted new connection", "addr", conn.RemoteAddr())
 
-		case conn := <-newConnections:
+			p := new(core.Player)
+			p.ConnID = uuid.New()
+			p.Conn = conn
+			p.Reader = bufio.NewReader(conn)
+			p.Writer = bufio.NewWriter(conn)
 
-			log.Printf("Accepted new connection, %v", conn.RemoteAddr())
-
-			p := new(player)
-			p.connID = uuid.NewV4()
-			p.conn = conn
-			p.reader = bufio.NewReader(conn)
-			p.writer = bufio.NewWriter(conn)
-
-			allPlayers[p.connID] = p
+			s.allPlayers[p.ConnID] = p
 
 			// Spawn independant player exec
-			go playerExec(p)
+			go core.PlayerExec(ctx, p)
 
-		case payload := <-chanBroadcast:
-			var targets map[uuid.UUID]*player
-			if payload.targetMap == nil {
-				targets = allPlayers
+		case payload := <-core.ChanBroadcast:
+			var targets map[uuid.UUID]*core.Player
+			if payload.TargetMap == nil {
+				targets = s.allPlayers
 			} else {
-				targets = payload.targetMap.players
+				targets = payload.TargetMap.Players
 			}
 
 			for _, p := range targets {
-				if p != payload.excludePlayer {
-					go p.send(*payload.message)
+				if p != payload.ExcludePlayer {
+					go p.Send(*payload.Message)
 				}
 			}
 
-		case p := <-chanCleanDisconns:
-			log.Printf("%s (%v) disconnected", p.name, p.conn.RemoteAddr())
-			delete(allPlayers, p.connID)
-			p.conn.Close()
+		case p := <-core.ChanCleanDisconns:
+			core.Logger.Info("Player disconnected", "name", p.Name, "addr", p.Conn.RemoteAddr())
+			delete(s.allPlayers, p.ConnID)
+			p.Conn.Close()
 		}
 	}
 }
 
-func broadcast(message *string, targetMap *dsmap, excludePlayer *player) {
-	chanBroadcast <- &broadcastPayload{message, targetMap, excludePlayer}
-}
-
-func broadcastAll(message string) {
-	broadcast(&message, nil, nil)
-}
-
-func broadcastMap(message string, p *player) {
-	broadcast(&message, p.mapContext.currMap, nil)
-}
-
-func broadcastMapExclude(message string, p *player) {
-	broadcast(&message, p.mapContext.currMap, p)
-}
-
-func toDSChar(i int) rune {
-	return (rune)(i + 32)
-}
-
-func buildMainMap() (m *dsmap) {
-	m = new(dsmap)
-	m.name = "lev01"
-	m.width = standardMapWidth
-	m.height = standardMapHeight
-	m.tiles = make([][]*dsmapTile, m.width)
-	for x := range m.tiles {
-		row := make([]*dsmapTile, m.height)
-		for y := range row {
-			row[y] = new(dsmapTile)
-		}
-		m.tiles[x] = row
+func main() {
+	s := &Server{
+		allPlayers:     make(map[uuid.UUID]*core.Player),
+		newConnections: make(chan net.Conn),
 	}
-	m.xstart = 26
-	m.ystart = 41
-	err := m.readMapFromFile(m.name + ".dsmap")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := s.Start(ctx)
 	if err != nil {
-		log.Println(err)
+		os.Exit(1)
 	}
-	m.players = make(map[uuid.UUID]*player)
-	return
 }
