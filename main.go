@@ -83,9 +83,18 @@ func main() {
 				targets = payload.targetMap.players
 			}
 
+			log.Printf("Broadcasting message: %s", *payload.message)
+			// Use a map to track which players have received the message to avoid duplicates
+			sentTo := make(map[uuid.UUID]bool)
 			for _, p := range targets {
-				if p != payload.excludePlayer {
-					go p.send(*payload.message)
+				if p != payload.excludePlayer && !sentTo[p.connID] {
+					sentTo[p.connID] = true
+					go func(p *player, msg string) {
+						err := p.send(msg)
+						if err != nil {
+							log.Printf("Error sending message to %s: %v", p.name, err)
+						}
+					}(p, *payload.message)
 				}
 			}
 

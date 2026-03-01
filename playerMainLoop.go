@@ -16,6 +16,9 @@ func playerMainLoop(p *player) (err error) {
 		if err != nil {
 			return
 		}
+		if len(p.lastLine) == 0 {
+			continue
+		}
 		switch p.lastLine[0] {
 		case 'm':
 			p.move()
@@ -35,7 +38,21 @@ func playerMainLoop(p *player) (err error) {
 }
 
 func (p *player) move() {
-	p.facing = int(p.lastLine[2]) - 48
+	// Check if the command has the correct format (e.g., "m1")
+	if len(p.lastLine) < 2 {
+		p.send("(Invalid move command format.")
+		return
+	}
+
+	// Parse the direction from the command
+	dir := int(p.lastLine[1]) - 48
+	// Validate direction is within acceptable range (1,3,7,9 based on rotation logic)
+	if dir != 1 && dir != 3 && dir != 7 && dir != 9 {
+		p.send("(Invalid direction for move.")
+		return
+	}
+
+	p.facing = dir
 	p.setShapeCycleMove()
 	p.mapContext.currMap.movePlayer(p, p.facing)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"log"
 	"net"
 
 	"github.com/satori/go.uuid"
@@ -32,7 +33,7 @@ type playerMapContext struct {
 var longShapeStart = [][]int{
 	{2, 2, 6, 10, 10, 6, 10, 14, 14},
 	{2, 2, 7, 12, 12, 7, 12, 17, 17},
-	{2, 2, 5, 8, 8, 5, 8, 11, 11}}
+}
 
 var moveCycleLoop = []int{-1, 0, 1, 0}
 
@@ -53,6 +54,7 @@ func (p *player) logOut() {
 }
 
 func (p *player) send(message string) (err error) {
+	log.Printf("Sending to %s: %s", p.name, message)
 	_, err = p.writer.WriteString(message)
 	if err != nil {
 		return err
@@ -63,6 +65,9 @@ func (p *player) send(message string) (err error) {
 	}
 	err = p.writer.Flush()
 	if err != nil {
+		log.Printf("Error flushing message to %s: %v", p.name, err)
+		// Do not retry on short write; log the error and return it
+		// This allows higher-level logic to handle connection issues
 		return err
 	}
 	return nil
@@ -79,6 +84,10 @@ func (p *player) setShapeStanding() {
 }
 
 func (p *player) setShapeCycleMove() {
+	if p.facing < 1 || p.facing > 9 {
+		log.Printf("Invalid facing value for player %s: %d", p.name, p.facing)
+		p.facing = 1 // Default to a valid facing value
+	}
 	p.facingShapeBase = toDSChar(longShapeStart[1][p.facing-1])
 	p.visibleShape = p.facingShapeBase + rune(moveCycleLoop[p.shapeMoveCycle])
 	p.shapeMoveCycle++
