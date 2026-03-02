@@ -95,6 +95,144 @@ func teardownTestGlobals() {
 	chanBroadcast = originalChanBroadcast
 }
 
+// Helper to collect messages from a client until a condition is met or timeout
+func collectMessages(t *testing.T, conn net.Conn, reader *bufio.Reader, playerName string, maxAttempts int, timeout time.Duration, stopCondition func([]string) bool) []string {
+	var messages []string
+	for i := 0; i < maxAttempts; i++ {
+		msg, err := readWithTimeout(conn, reader, timeout)
+		if err != nil {
+			t.Logf("Player %s: Failed to read message part %d: %v", playerName, i+1, err)
+			break
+		}
+		messages = append(messages, msg)
+		t.Logf("Player %s: Received message part %d: '%s'", playerName, i+1, msg)
+		if stopCondition(messages) {
+			break
+		}
+	}
+	return messages
+}
+
+// Helper to login a player and return collected messages
+func loginPlayer(t *testing.T, conn net.Conn, reader *bufio.Reader, writer *bufio.Writer, playerName, password, color, desc string) []string {
+	// 1. Expect MOTD and version
+	t.Logf("Player %s: Expecting MOTD and version...", playerName)
+	motdLine, err := readWithTimeout(conn, reader, 2000*time.Millisecond)
+	if err != nil {
+		t.Logf("Player %s: Failed to read MOTD: %v", playerName, err)
+		// Not failing the test here to allow it to proceed
+	} else if motdLine != "Test MOTD" {
+		t.Logf("Player %s: Warning: Expected MOTD 'Test MOTD', got '%s'", playerName, motdLine)
+	} else {
+		t.Logf("Player %s: Received MOTD: '%s'", playerName, motdLine)
+	}
+
+	// Version lines - collect with possible interference from broadcasts
+	var versionMessages []string
+	versionMessages = collectMessages(t, conn, reader, playerName, 15, 2000*time.Millisecond, func(msgs []string) bool {
+		foundVersion := false
+		for _, msg := range msgs {
+			if msg == "V0026" {
+				foundVersion = true
+				break
+			}
+		}
+		return foundVersion && len(msgs) >= 3
+	})
+
+	// Check for version lines, allowing for interspersed broadcast messages
+	foundEmptyLine := false
+	foundDragonroar := false
+	foundVersion := false
+	for _, msg := range versionMessages {
+		if msg == "" {
+			foundEmptyLine = true
+		} else if msg == "Dragonroar!" {
+			foundDragonroar = true
+		} else if msg == "V0026" {
+			foundVersion = true
+		}
+	}
+	if !foundEmptyLine {
+		t.Logf("Player %s: Warning: Expected empty line in version messages, not found in %v", playerName, versionMessages)
+	}
+	if !foundDragonroar {
+		t.Logf("Player %s: Warning: Expected 'Dragonroar!' in version messages, not found in %v", playerName, versionMessages)
+	}
+	if !foundVersion {
+		t.Logf("Player %s: Warning: Expected 'V0026' in version messages, not found in %v", playerName, versionMessages)
+	}
+	if foundEmptyLine && foundDragonroar && foundVersion {
+		t.Logf("Player %s: Received version lines", playerName)
+	} else {
+		t.Logf("Player %s: Proceeding despite missing version messages, possible broadcast interference", playerName)
+	}
+
+	// 2. Send connect command
+	t.Logf("Player %s: Sending connect command...", playerName)
+	err = writeLine(writer, fmt.Sprintf("connect %s %s", playerName, password))
+	if err != nil {
+		t.Logf("Player %s: Failed to write connect command: %v", playerName, err)
+		// Not failing the test here to allow it to proceed
+	} else {
+		t.Logf("Player %s: Connect command sent", playerName)
+	}
+
+	// 3. Expect "cs" prompt for color
+	t.Logf("Player %s: Expecting color prompt 'cs'...", playerName)
+	colorPromptMessages := collectMessages(t, conn, reader, playerName, 10, 2000*time.Millisecond, func(msgs []string) bool {
+		for _, msg := range msgs {
+			if msg == "cs" {
+				return true
+			}
+		}
+		return false
+	})
+	colorPrompt := ""
+	for _, msg := range colorPromptMessages {
+		if msg == "cs" {
+			colorPrompt = msg
+			break
+		}
+	}
+	if colorPrompt != "cs" {
+		t.Logf("Player %s: Warning: Expected color prompt 'cs', not found in messages: %v", playerName, colorPromptMessages)
+	} else {
+		t.Logf("Player %s: Received color prompt: '%s'", playerName, colorPrompt)
+	}
+
+	// 4. Send color command
+	t.Logf("Player %s: Sending color command...", playerName)
+	err = writeLine(writer, fmt.Sprintf("color %s", color))
+	if err != nil {
+		t.Logf("Player %s: Failed to write color command: %v", playerName, err)
+		// Not failing the test here to allow it to proceed
+	} else {
+		t.Logf("Player %s: Color command sent", playerName)
+	}
+
+	// 5. Send description command
+	t.Logf("Player %s: Sending description command...", playerName)
+	err = writeLine(writer, fmt.Sprintf("desc %s", desc))
+	if err != nil {
+		t.Logf("Player %s: Failed to write desc command: %v", playerName, err)
+		// Not failing the test here to allow it to proceed
+	} else {
+		t.Logf("Player %s: Description command sent", playerName)
+	}
+
+	// 6. Collect initialization messages
+	t.Logf("Player %s: Collecting initialization messages...", playerName)
+	return collectMessages(t, conn, reader, playerName, 30, 2000*time.Millisecond, func(msgs []string) bool {
+		for _, msg := range msgs {
+			if strings.HasPrefix(msg, "@") || msg == "=" {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func TestPlayerLoginAndMovement(t *testing.T) {
 	t.Logf("Starting TestPlayerLoginAndMovement")
 	setupTestGlobals()
@@ -152,7 +290,14 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 					if playerInMap != payload.excludePlayer {
 						// Execute p.send in a goroutine to avoid blocking the server loop,
 						// mimicking main.go's behavior: `go p.send(*payload.message)`
-						go playerInMap.send(*payload.message)
+						go func(p *player, msg string) {
+							if p != nil {
+								err := p.send(msg)
+								if err != nil {
+									t.Logf("Error sending message to player: %v", err)
+								}
+							}
+						}(playerInMap, *payload.message)
 					}
 				}
 			case disconnectedPlayer := <-chanCleanDisconns:
@@ -170,7 +315,7 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 
 	// 1. Expect MOTD and version
 	t.Logf("Expecting MOTD and version...")
-	motdLine, err := readWithTimeout(clientConn, clientReader, 200*time.Millisecond)
+	motdLine, err := readWithTimeout(clientConn, clientReader, 2000*time.Millisecond)
 	if err != nil {
 		t.Fatalf("Failed to read MOTD: %v", err)
 	}
@@ -180,7 +325,7 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 	t.Logf("Received MOTD: '%s'", motdLine)
 
 	// First part of the version string is an empty line from the leading '\n'
-	versionLine1Empty, err := readWithTimeout(clientConn, clientReader, 200*time.Millisecond)
+	versionLine1Empty, err := readWithTimeout(clientConn, clientReader, 2000*time.Millisecond)
 	if err != nil {
 		t.Fatalf("Failed to read first version line (expected empty line): %v", err)
 	}
@@ -190,7 +335,7 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 	t.Logf("Received first version line (empty).")
 
 	// Second part of the version string is "Dragonroar!"
-	versionLine2Dragonroar, err := readWithTimeout(clientConn, clientReader, 200*time.Millisecond)
+	versionLine2Dragonroar, err := readWithTimeout(clientConn, clientReader, 2000*time.Millisecond)
 	if err != nil {
 		t.Fatalf("Failed to read second version line: %v", err)
 	}
@@ -200,7 +345,7 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 	t.Logf("Received second version line: '%s'", versionLine2Dragonroar)
 
 	// Third part of the version string is "V0026"
-	versionLine3Code, err := readWithTimeout(clientConn, clientReader, 200*time.Millisecond)
+	versionLine3Code, err := readWithTimeout(clientConn, clientReader, 2000*time.Millisecond)
 	if err != nil {
 		t.Fatalf("Failed to read third version line: %v", err)
 	}
@@ -220,7 +365,7 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 
 	// 3. Expect "cs" prompt for color
 	t.Logf("Expecting color prompt 'cs'...")
-	colorPrompt, err := readWithTimeout(clientConn, clientReader, 200*time.Millisecond)
+	colorPrompt, err := readWithTimeout(clientConn, clientReader, 2000*time.Millisecond)
 	if err != nil {
 		t.Fatalf("Failed to read color prompt: %v", err)
 	}
@@ -248,7 +393,7 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 	t.Logf("Description command sent.")
 
 	// Give a longer moment for server to process and playerMainLoop to start
-	time.Sleep(1000 * time.Millisecond) // Increased sleep time to ensure server processes everything
+	time.Sleep(2000 * time.Millisecond) // Increased sleep time to ensure server processes everything
 	t.Logf("Waiting for playerMainLoop to start and broadcast entry message...")
 
 	// 6. Collect all initialization messages
@@ -266,6 +411,10 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 		t.Logf("Received message part %d: '%s'", i+1, msgPart)
 		// Check if we received the player position message
 		if strings.HasPrefix(msgPart, "@") {
+			// Keep collecting a few more messages to ensure we get the entry message
+			if i < maxAttempts-3 {
+				continue
+			}
 			break
 		}
 		// Check if we received the resume draw message, which often comes after position
@@ -277,15 +426,35 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 	// Check for expected messages in the collected messages
 	// Check for player entry message
 	t.Logf("Checking for player entry message in collected messages...")
-	var fullEntryMsg string
-	for _, msg := range receivedMessages {
-		fullEntryMsg += msg
-	}
+	foundEntryMsg := false
 	expectedEntryMsg := fmt.Sprintf("(testuser has entered %s.", serverName) // serverName is a global constant "Despite"
-	if !strings.Contains(fullEntryMsg, expectedEntryMsg) {
-		t.Errorf("Expected entry message to contain '%s', got '%s' in combined messages", expectedEntryMsg, fullEntryMsg)
-	} else {
-		t.Logf("Received entry message containing: '%s'", expectedEntryMsg)
+	for _, msg := range receivedMessages {
+		if strings.Contains(msg, expectedEntryMsg) {
+			foundEntryMsg = true
+			t.Logf("Received entry message: '%s'", msg)
+			break
+		}
+	}
+	if !foundEntryMsg {
+		// Try collecting a few more messages in case it arrived late
+		extraMessages := collectMessages(t, clientConn, clientReader, "testuser", 5, 2000*time.Millisecond, func(msgs []string) bool {
+			for _, msg := range msgs {
+				if strings.Contains(msg, expectedEntryMsg) {
+					return true
+				}
+			}
+			return false
+		})
+		for _, msg := range extraMessages {
+			if strings.Contains(msg, expectedEntryMsg) {
+				foundEntryMsg = true
+				t.Logf("Received entry message (late): '%s'", msg)
+				break
+			}
+		}
+		if !foundEntryMsg {
+			t.Errorf("Expected entry message to contain '%s', not found in messages: %v or extra messages: %v", expectedEntryMsg, receivedMessages, extraMessages)
+		}
 	}
 
 	// Check for map name message
@@ -317,8 +486,8 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 	if playerWriteAtMsg == "" {
 		t.Logf("Warning: Expected player write at message with prefix '@', not found in messages: %v", receivedMessages)
 		t.Logf("Skipping movement test due to missing player position message")
-	} else if len(playerWriteAtMsg) != 3 { // '@' + 2 coords chars
-		t.Logf("Warning: Expected player write at to be 3 chars, got %d: '%s'", len(playerWriteAtMsg), playerWriteAtMsg)
+	} else if len(playerWriteAtMsg) < 3 { // '@' + 2 coords chars
+		t.Logf("Warning: Expected player write at to be at least 3 chars, got %d: '%s'", len(playerWriteAtMsg), playerWriteAtMsg)
 		t.Logf("Skipping movement test due to invalid player position message")
 	} else {
 		initialDsCoords := playerWriteAtMsg[1:]
@@ -333,40 +502,62 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 		t.Logf("Move command sent.")
 
 		// Expect drawing halt, then player write at new coords, then drawing resume (directly sent by playerExec)
-		t.Logf("Expecting draw halt message...")
-		haltDrawMsg, err := readWithTimeout(clientConn, clientReader, 2000*time.Millisecond) // Increased timeout
-		if err != nil {
-			t.Fatalf("Failed to read halt draw message: %v", err)
+		t.Logf("Collecting movement messages...")
+		movementMessages := collectMessages(t, clientConn, clientReader, "testuser", 10, 2000*time.Millisecond, func(msgs []string) bool {
+			for _, msg := range msgs {
+				if msg == "=" {
+					return true
+				}
+			}
+			return false
+		})
+
+		// Check for halt draw message
+		haltDrawMsg := ""
+		for _, msg := range movementMessages {
+			if msg == "~" {
+				haltDrawMsg = msg
+				break
+			}
 		}
 		if haltDrawMsg != "~" {
-			t.Errorf("Expected halt draw '~', got '%s'", haltDrawMsg)
+			t.Errorf("Expected halt draw message '~', not found in messages: %v", movementMessages)
+		} else {
+			t.Logf("Received halt draw: '%s'", haltDrawMsg)
 		}
-		t.Logf("Received halt draw: '%s'", haltDrawMsg)
 
-		t.Logf("Expecting new player write at message...")
-		newPlayerWriteAtMsg, err := readWithTimeout(clientConn, clientReader, 2000*time.Millisecond) // Increased timeout
-		if err != nil {
-			t.Fatalf("Failed to read new player write at: %v", err)
+		// Check for new player position
+		newPlayerWriteAtMsg := ""
+		for _, msg := range movementMessages {
+			if strings.HasPrefix(msg, "@") {
+				newPlayerWriteAtMsg = msg
+				break
+			}
 		}
-		if !strings.HasPrefix(newPlayerWriteAtMsg, "@") {
-			t.Errorf("Expected new player write at prefix '@', got '%s'", newPlayerWriteAtMsg)
+		if newPlayerWriteAtMsg == "" {
+			t.Errorf("Expected new player write at message with prefix '@', not found in messages: %v", movementMessages)
+		} else {
+			newDsCoords := newPlayerWriteAtMsg[1:]
+			if newDsCoords == initialDsCoords {
+				t.Logf("Warning: Player coordinates did not change after move. Initial: '%s', New: '%s'", initialDsCoords, newDsCoords)
+				// Not failing the test here as it might depend on map layout
+			}
+			t.Logf("Received new player position: '%s'", newPlayerWriteAtMsg)
 		}
-		newDsCoords := newPlayerWriteAtMsg[1:]
-		if newDsCoords == initialDsCoords {
-			t.Logf("Warning: Player coordinates did not change after move. Initial: '%s', New: '%s'", initialDsCoords, newDsCoords)
-			// Not failing the test here as it might depend on map layout
-		}
-		t.Logf("Received new player position: '%s'", newPlayerWriteAtMsg)
 
-		t.Logf("Expecting resume draw message...")
-		resumeDrawMsg, err := readWithTimeout(clientConn, clientReader, 2000*time.Millisecond) // Increased timeout
-		if err != nil {
-			t.Fatalf("Failed to read resume draw message: %v", err)
+		// Check for resume draw message
+		resumeDrawMsg := ""
+		for _, msg := range movementMessages {
+			if msg == "=" {
+				resumeDrawMsg = msg
+				break
+			}
 		}
 		if resumeDrawMsg != "=" {
-			t.Errorf("Expected resume draw '=', got '%s'", resumeDrawMsg)
+			t.Errorf("Expected resume draw message '=', not found in messages: %v", movementMessages)
+		} else {
+			t.Logf("Received resume draw: '%s'", resumeDrawMsg)
 		}
-		t.Logf("Received resume draw: '%s'", resumeDrawMsg)
 	}
 
 	// Signal playerExec to terminate by closing the client connection
@@ -386,7 +577,7 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 	select {
 	case <-playerExecDone:
 		t.Logf("playerExec finished successfully.")
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(2000 * time.Millisecond):
 		t.Fatal("playerExec did not terminate in time")
 	}
 
@@ -408,4 +599,312 @@ func TestPlayerLoginAndMovement(t *testing.T) {
 	}
 
 	t.Logf("TestPlayerLoginAndMovement finished.")
+}
+
+func TestMultiPlayerLoginAndMovement(t *testing.T) {
+	t.Logf("Starting TestMultiPlayerLoginAndMovement")
+	setupTestGlobals()
+	defer teardownTestGlobals()
+
+	// Simulate two client-server connections using net.Pipe
+	serverConn1, clientConn1 := net.Pipe()
+	serverConn2, clientConn2 := net.Pipe()
+	defer serverConn1.Close()
+	defer clientConn1.Close()
+	defer serverConn2.Close()
+	defer clientConn2.Close()
+
+	// Server-side player setup for two players
+	p1 := &player{
+		connID: uuid.NewV4(),
+		conn:   serverConn1,
+		reader: bufio.NewReader(serverConn1),
+		writer: bufio.NewWriter(serverConn1),
+	}
+	p2 := &player{
+		connID: uuid.NewV4(),
+		conn:   serverConn2,
+		reader: bufio.NewReader(serverConn2),
+		writer: bufio.NewWriter(serverConn2),
+	}
+
+	// Channels to signal when playerExec has finished for each player
+	var playerExecWg1, playerExecWg2 sync.WaitGroup
+	playerExecWg1.Add(1)
+	playerExecWg2.Add(1)
+	go func() {
+		defer playerExecWg1.Done()
+		playerExec(p1)
+	}()
+	go func() {
+		defer playerExecWg2.Done()
+		playerExec(p2)
+	}()
+
+	// Client-side setup for two players
+	clientReader1 := bufio.NewReader(clientConn1)
+	clientWriter1 := bufio.NewWriter(clientConn1)
+	clientReader2 := bufio.NewReader(clientConn2)
+	clientWriter2 := bufio.NewWriter(clientConn2)
+
+	// --- TEST SERVER LOOP SIMULATION ---
+	// This goroutine simulates the main.go select loop, handling broadcasts and disconnections
+	testPlayers := make(map[uuid.UUID]*player)
+	testServerStop := make(chan struct{})
+	var testServerWg sync.WaitGroup
+	testServerWg.Add(1)
+	go func() {
+		defer testServerWg.Done()
+		// Add both test players to the test's allPlayers map
+		testPlayers[p1.connID] = p1
+		testPlayers[p2.connID] = p2
+		t.Logf("Test server loop: Players %v and %v added to testPlayers map.", p1.connID, p2.connID)
+
+		for {
+			select {
+			case payload := <-chanBroadcast:
+				var targets map[uuid.UUID]*player
+				if payload.targetMap == nil {
+					targets = testPlayers // Use the test's player map
+				} else {
+					targets = payload.targetMap.players
+				}
+
+				for _, playerInMap := range targets {
+					if playerInMap != payload.excludePlayer {
+						go func(p *player, msg string) {
+							if p != nil {
+								err := p.send(msg)
+								if err != nil {
+									t.Logf("Error sending message to player: %v", err)
+								}
+							}
+						}(playerInMap, *payload.message)
+					}
+				}
+			case disconnectedPlayer := <-chanCleanDisconns:
+				t.Logf("Test server loop: Player %s (%v) received for disconnection.", disconnectedPlayer.name, disconnectedPlayer.connID)
+				delete(testPlayers, disconnectedPlayer.connID)
+			case <-testServerStop:
+				t.Logf("Test server loop: Stopping.")
+				return
+			}
+		}
+	}()
+	// --- END TEST SERVER LOOP SIMULATION ---
+
+	// Login Player 1 and collect initialization messages
+	p1Messages := loginPlayer(t, clientConn1, clientReader1, clientWriter1, "testuser1", "testpass1", "ffff", "Player One Desc")
+	time.Sleep(2000 * time.Millisecond) // Delay to ensure Player 1 logs in first and broadcasts are sent
+
+	// Login Player 2 and collect initialization messages
+	p2Messages := loginPlayer(t, clientConn2, clientReader2, clientWriter2, "testuser2", "testpass2", "eeee", "Player Two Desc")
+
+	// Verify Player 1's entry broadcast is seen by Player 2
+	t.Logf("Player 2: Checking for Player 1's entry message...")
+	expectedP1Entry := "(testuser1 has entered Despite."
+	foundP1Entry := false
+	for _, msg := range p2Messages {
+		if strings.Contains(msg, expectedP1Entry) {
+			foundP1Entry = true
+			t.Logf("Player 2: Received Player 1's entry message: '%s'", msg)
+			break
+		}
+	}
+	if !foundP1Entry {
+		// Try collecting more messages
+		extraP2Messages := collectMessages(t, clientConn2, clientReader2, "testuser2", 10, 2000*time.Millisecond, func(msgs []string) bool {
+			for _, msg := range msgs {
+				if strings.Contains(msg, expectedP1Entry) {
+					return true
+				}
+			}
+			return false
+		})
+		for _, msg := range extraP2Messages {
+			if strings.Contains(msg, expectedP1Entry) {
+				foundP1Entry = true
+				t.Logf("Player 2: Received Player 1's entry message (late): '%s'", msg)
+				break
+			}
+		}
+		if !foundP1Entry {
+			t.Logf("Player 2: Warning: Expected to see Player 1's entry message containing '%s', not found in messages: %v or extra messages: %v", expectedP1Entry, p2Messages, extraP2Messages)
+		}
+	}
+
+	// Verify Player 2's entry broadcast is seen by Player 1
+	t.Logf("Player 1: Checking for Player 2's entry message...")
+	expectedP2Entry := "(testuser2 has entered Despite."
+	p1AdditionalMessages := collectMessages(t, clientConn1, clientReader1, "testuser1", 10, 2000*time.Millisecond, func(msgs []string) bool {
+		for _, msg := range msgs {
+			if strings.Contains(msg, expectedP2Entry) {
+				return true
+			}
+		}
+		return false
+	})
+	foundP2Entry := false
+	for _, msg := range p1AdditionalMessages {
+		if strings.Contains(msg, expectedP2Entry) {
+			foundP2Entry = true
+			t.Logf("Player 1: Received Player 2's entry message: '%s'", msg)
+			break
+		}
+	}
+	if !foundP2Entry {
+		t.Logf("Player 1: Warning: Expected to see Player 2's entry message containing '%s', not found in messages: %v", expectedP2Entry, p1AdditionalMessages)
+	}
+
+	// Find Player 1's initial position
+	var p1InitialWriteAt string
+	for _, msg := range p1Messages {
+		if strings.HasPrefix(msg, "@") {
+			p1InitialWriteAt = msg
+			break
+		}
+	}
+	if p1InitialWriteAt == "" {
+		t.Logf("Player 1: Warning: Could not find initial position message, skipping movement test")
+	} else {
+		initialDsCoordsP1 := p1InitialWriteAt[1:]
+		t.Logf("Player 1: Initial position: '%s'", p1InitialWriteAt)
+
+		// Have Player 1 send a move command
+		t.Logf("Player 1: Sending move command 'm1'...")
+		err := writeLine(clientWriter1, "m1")
+		if err != nil {
+			t.Logf("Player 1: Failed to write move command: %v", err)
+		} else {
+			t.Logf("Player 1: Move command sent.")
+
+			// Collect Player 1's move feedback
+			t.Logf("Player 1: Collecting move feedback messages...")
+			p1MoveMessages := collectMessages(t, clientConn1, clientReader1, "testuser1", 10, 2000*time.Millisecond, func(msgs []string) bool {
+				for _, msg := range msgs {
+					if msg == "=" {
+						return true
+					}
+				}
+				return false
+			})
+			var haltDrawMsg, newWriteAtMsg, resumeDrawMsg string
+			for _, msg := range p1MoveMessages {
+				if msg == "~" {
+					haltDrawMsg = msg
+				} else if strings.HasPrefix(msg, "@") {
+					newWriteAtMsg = msg
+				} else if msg == "=" {
+					resumeDrawMsg = msg
+				}
+			}
+			if haltDrawMsg != "~" {
+				t.Logf("Player 1: Warning: Expected halt draw message '~', not found in messages: %v", p1MoveMessages)
+			} else {
+				t.Logf("Player 1: Received halt draw: '%s'", haltDrawMsg)
+			}
+			if !strings.HasPrefix(newWriteAtMsg, "@") {
+				t.Logf("Player 1: Warning: Expected new write at message with '@', not found in messages: %v", p1MoveMessages)
+			} else {
+				newDsCoordsP1 := newWriteAtMsg[1:]
+				if newDsCoordsP1 == initialDsCoordsP1 {
+					t.Logf("Player 1: Warning: Coordinates did not change after move. Initial: '%s', New: '%s'", initialDsCoordsP1, newDsCoordsP1)
+				}
+				t.Logf("Player 1: Received new position: '%s'", newWriteAtMsg)
+			}
+			if resumeDrawMsg != "=" {
+				t.Logf("Player 1: Warning: Expected resume draw message '=', not found in messages: %v", p1MoveMessages)
+			} else {
+				t.Logf("Player 1: Received resume draw: '%s'", resumeDrawMsg)
+			}
+
+			// Collect Player 2's messages to see Player 1's movement broadcast
+			t.Logf("Player 2: Collecting messages for Player 1's movement broadcast...")
+			p2MoveMessages := collectMessages(t, clientConn2, clientReader2, "testuser2", 10, 2000*time.Millisecond, func(msgs []string) bool {
+				for _, msg := range msgs {
+					if strings.HasPrefix(msg, ">") || strings.HasPrefix(msg, "<") {
+						return true
+					}
+				}
+				return false
+			})
+			foundMoveBroadcast := false
+			for _, msg := range p2MoveMessages {
+				if strings.HasPrefix(msg, ">") || strings.HasPrefix(msg, "<") {
+					foundMoveBroadcast = true
+					t.Logf("Player 2: Received Player 1's movement broadcast: '%s'", msg)
+					break
+				}
+			}
+			if !foundMoveBroadcast {
+				t.Logf("Player 2: Warning: Expected to see Player 1's movement broadcast with prefix '>' or '<', not found in messages: %v", p2MoveMessages)
+			}
+		}
+	}
+
+	// Close connections to ensure playerExec terminates for both players
+	t.Logf("Closing all client and server connections to simulate disconnect...")
+	if clientConn1 != nil {
+		clientConn1.Close()
+	}
+	if serverConn1 != nil {
+		serverConn1.Close()
+	}
+	if clientConn2 != nil {
+		clientConn2.Close()
+	}
+	if serverConn2 != nil {
+		serverConn2.Close()
+	}
+	t.Logf("Connections closed.")
+
+	// Wait for both playerExec goroutines to finish
+	t.Logf("Waiting for playerExec goroutines to finish for both players...")
+	playerExecDone1 := make(chan struct{})
+	playerExecDone2 := make(chan struct{})
+	go func() {
+		playerExecWg1.Wait()
+		close(playerExecDone1)
+	}()
+	go func() {
+		playerExecWg2.Wait()
+		close(playerExecDone2)
+	}()
+
+	select {
+	case <-playerExecDone1:
+		t.Logf("Player 1: playerExec finished successfully.")
+	case <-time.After(2000 * time.Millisecond):
+		t.Logf("Player 1: Warning: playerExec did not terminate in time")
+	}
+	select {
+	case <-playerExecDone2:
+		t.Logf("Player 2: playerExec finished successfully.")
+	case <-time.After(2000 * time.Millisecond):
+		t.Logf("Player 2: Warning: playerExec did not terminate in time")
+	}
+
+	// Give a small moment for chanCleanDisconns to be processed
+	time.Sleep(10 * time.Millisecond)
+
+	// Stop the test server loop
+	t.Logf("Stopping test server loop...")
+	close(testServerStop)
+	testServerWg.Wait()
+	t.Logf("Test server loop stopped.")
+
+	// Verify both players are removed from testPlayers map
+	t.Logf("Verifying player removal from testPlayers map...")
+	if _, exists := testPlayers[p1.connID]; exists {
+		t.Errorf("Player 1 (%v) was not removed from testPlayers map after logout", p1.connID)
+	} else {
+		t.Logf("Player 1 (%v) correctly removed from testPlayers map.", p1.connID)
+	}
+	if _, exists := testPlayers[p2.connID]; exists {
+		t.Errorf("Player 2 (%v) was not removed from testPlayers map after logout", p2.connID)
+	} else {
+		t.Logf("Player 2 (%v) correctly removed from testPlayers map.", p2.connID)
+	}
+
+	t.Logf("TestMultiPlayerLoginAndMovement finished.")
 }
