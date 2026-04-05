@@ -8,7 +8,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 )
 
 const serverName string = "Despite"
@@ -20,25 +20,19 @@ type broadcastPayload struct {
 }
 
 var chanCleanDisconns = make(chan *player)
-var chanBroadcast = make(chan *broadcastPayload)
+var chanBroadcast = make(chan *broadcastPayload, 100) // Buffered channel to prevent deadlock
 var motd string
 var mainMap *dsmap
 
-func main() {
-
-	if motdBytes, err := ioutil.ReadFile("motd.txt"); err != nil {
-		log.Println(err)
-		motd = serverName
-	} else {
-		motd = string(motdBytes)
-	}
+func startServer(port string, motdValue string) (net.Listener, map[uuid.UUID]*player, chan net.Conn) {
+	motd = motdValue
 
 	mainMap = buildMainMap()
 
 	allPlayers := make(map[uuid.UUID]*player)
 	newConnections := make(chan net.Conn)
 
-	server, err := net.Listen("tcp", ":7734")
+	server, err := net.Listen("tcp", port)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -50,12 +44,16 @@ func main() {
 			conn, err := server.Accept()
 			if err != nil {
 				fmt.Println(err)
-				os.Exit(1)
+				return
 			}
 			newConnections <- conn
 		}
 	}()
 
+	return server, allPlayers, newConnections
+}
+
+func runServerLoop(allPlayers map[uuid.UUID]*player, newConnections chan net.Conn) {
 	for {
 
 		select {
@@ -97,8 +95,24 @@ func main() {
 	}
 }
 
+func main() {
+	var motdValue string
+	if motdBytes, err := ioutil.ReadFile("motd.txt"); err != nil {
+		log.Println(err)
+		motdValue = serverName
+	} else {
+		motdValue = string(motdBytes)
+	}
+	_, allPlayers, newConnections := startServer(":7734", motdValue)
+	runServerLoop(allPlayers, newConnections)
+}
+
 func broadcast(message *string, targetMap *dsmap, excludePlayer *player) {
-	chanBroadcast <- &broadcastPayload{message, targetMap, excludePlayer}
+	select {
+	case chanBroadcast <- &broadcastPayload{message, targetMap, excludePlayer}:
+	default:
+		log.Printf("DROP_broadcast - channel full")
+	}
 }
 
 func broadcastAll(message string) {
