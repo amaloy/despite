@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"log"
 	"net"
+	"sync"
 
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 )
 
 type player struct {
@@ -12,6 +14,7 @@ type player struct {
 	conn            net.Conn
 	reader          *bufio.Reader
 	writer          *bufio.Writer
+	writeMutex      sync.Mutex // Add a mutex to protect writes to the player's writer
 	lastLine        string
 	name            string
 	color           string
@@ -40,6 +43,7 @@ func playerExec(p *player) {
 	var err error
 	err = playerLoginLoop(p)
 	if err != nil {
+		log.Printf("playerLoginLoop_error: %v", err)
 		p.logOut()
 		return
 	}
@@ -53,6 +57,9 @@ func (p *player) logOut() {
 }
 
 func (p *player) send(message string) (err error) {
+	p.writeMutex.Lock()         // Lock the mutex before writing to prevent race conditions
+	defer p.writeMutex.Unlock() // Ensure the mutex is unlocked after the function returns
+
 	_, err = p.writer.WriteString(message)
 	if err != nil {
 		return err

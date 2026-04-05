@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"log"
+)
 
 func playerMainLoop(p *player) (err error) {
 	broadcastAll(fmt.Sprintf("(%s has entered %s.", p.name, serverName))
@@ -14,6 +17,7 @@ func playerMainLoop(p *player) (err error) {
 	for {
 		err = p.readLine()
 		if err != nil {
+			log.Printf("playerMainLoop_error %v", err)
 			return
 		}
 		switch p.lastLine[0] {
